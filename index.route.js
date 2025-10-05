@@ -25,4 +25,7 @@ router.use('/comments', commentRoutes);
 const authRoutes = require('./server/api/auth/auth.route');
 router.use('/auth', authRoutes);
 
+const roleRoutes = require('./server/api/role/role.route');
+router.use('/role', roleRoutes);
+
 module.exports = router;
