@@ -1,10 +1,45 @@
 const userService = require('./user.service');
 const { handleError } = require('../../helpers/handleError');
-const { validateFields } = require('../../helpers/validateFields');
+const { validateFields, validateGetUsersQuery } = require('../../helpers/validation');
 
 async function getUsers(req, res) {
   try {
-    const result = await userService.getAllUsers(req.query);
+    const { valid, errors } = validateGetUsersQuery(req.query);
+
+    if (!valid) {
+      return res.status(400).json({
+        success: false,
+        message: 'Dữ liệu không hợp lệ',
+        errors,
+      });
+    }
+
+    const {
+      page = 1,
+      limit = 10,
+      sortBy = 'created_at',
+      order = 'DESC',
+      search = '',
+      status,
+      email_verified
+    } = req.query;
+
+    const filters = {
+      page: Number(page),
+      limit: Number(limit),
+      sortBy,
+      order: order.toUpperCase(),
+      search,
+      status,
+      email_verified:
+        email_verified === 'true'
+          ? true
+          : email_verified === 'false'
+          ? false
+          : undefined,
+    };
+
+    const result = await userService.getAllUsers(filters);
     res.status(result.code).json(result);
   } catch (err) {
     handleError(err, res, 'Lỗi hệ thống khi lấy danh sách user');
@@ -13,10 +48,13 @@ async function getUsers(req, res) {
 
 async function getUserById(req, res) {
   try {
-    const validate = validateFields(req.body, ['id']);
+    const requiredFields = ['id'];
+    const validate = validateFields(req.body, requiredFields);
     if (!validate.success) return res.status(validate.code).json(validate);
 
-    const result = await userService.getUserById(req.body.id);
+    const { id } = req.body;
+
+    const result = await userService.getUserById(id);
     res.status(result.code).json(result);
   } catch (err) {
     handleError(err, res, 'Lỗi hệ thống khi lấy thông tin user');
@@ -26,10 +64,13 @@ async function getUserById(req, res) {
 
 async function createUser(req, res) {
   try {
-    const validate = validateFields(req.body, ['username', 'email', 'password']);
+    const requiredFields = ['username', 'email', 'password'];
+    const validate = validateFields(req.body, requiredFields);
     if (!validate.success) return res.status(validate.code).json(validate);
+    
+    const { username, email, password } = req.body;
 
-    const result = await userService.createUser(req.body);
+    const result = await userService.createUser(username, email, password);
     res.status(result.code).json(result);
   } catch (err) {
     handleError(err, res, 'Lỗi hệ thống khi tạo user');
@@ -38,10 +79,13 @@ async function createUser(req, res) {
 
 async function updateUser(req, res) {
   try {
-    const validate = validateFields(req.body, ['id']);
+    const requiredFields = ['id', 'data'];
+    const validate = validateFields(req.body, requiredFields);
     if (!validate.success) return res.status(validate.code).json(validate);
 
-    const result = await userService.updateUser(req.body.id, req.body);
+    const { id, data } = req.body;
+
+    const result = await userService.updateUser(id, data);
     res.status(result.code).json(result);
   } catch (err) {
     handleError(err, res, 'Lỗi hệ thống khi cập nhật user');
@@ -50,10 +94,13 @@ async function updateUser(req, res) {
 
 async function deleteUser(req, res) {
   try {
-    const validate = validateFields(req.body, ['id']);
+    const requiredFields = ['id'];
+    const validate = validateFields(req.body, requiredFields);
     if (!validate.success) return res.status(validate.code).json(validate);
 
-    const result = await userService.deleteUser(req.body.id);
+    const { id } = req.body;
+
+    const result = await userService.deleteUser(id);
     res.status(result.code).json(result);
   } catch (err) {
     handleError(err, res, 'Lỗi hệ thống khi xóa user');
@@ -62,7 +109,8 @@ async function deleteUser(req, res) {
 
 async function changePassword(req, res) {
   try {
-    const validate = validateFields(req.body, ['id', 'oldPassword', 'newPassword']);
+    const requiredFields = ['id', 'oldPassword', 'newPassword'];
+    const validate = validateFields(req.body, requiredFields);
     if (!validate.success) return res.status(validate.code).json(validate);
 
     const { id, oldPassword, newPassword } = req.body;

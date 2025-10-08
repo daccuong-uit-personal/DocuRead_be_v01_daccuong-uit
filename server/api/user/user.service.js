@@ -1,16 +1,10 @@
 const bcrypt = require('bcrypt');
-const { sqlQuery } = require('../../helpers/sqlQuery');
+const { sqlQuery, withTransaction } = require('../../helpers/sqlQuery');
 
-async function getAllUsers({ page = 1, limit = 10, sortBy = 'created_at', order = 'DESC', search = '', status, email_verified }) {
-  // ép kiểu và chuẩn hóa dữ liệu
-  page = Number(page);
-  limit = Number(limit);
-  order = order.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-
+async function getAllUsers({ page, limit, sortBy, order, search, status, email_verified }) {
   let whereClauses = [`status != 'inactive'`];
   let values = [];
 
-  // nếu có filter search
   if (search) {
     whereClauses.push(`(username LIKE ? OR email LIKE ?)`);
     values.push(`%${search}%`, `%${search}%`);
@@ -27,11 +21,8 @@ async function getAllUsers({ page = 1, limit = 10, sortBy = 'created_at', order 
   }
 
   const where = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
-
-  // tính offset cho phân trang
   const offset = (page - 1) * limit;
 
-  // đếm tổng số user
   const countQuery = `SELECT COUNT(*) AS total FROM users ${where}`;
   const countResult = await sqlQuery(countQuery, values);
   if (!countResult.success) return countResult;
@@ -39,7 +30,6 @@ async function getAllUsers({ page = 1, limit = 10, sortBy = 'created_at', order 
   const total = countResult.data[0].total;
   const totalPages = Math.ceil(total / limit);
 
-  // query lấy danh sách user
   const dataQuery = `
     SELECT
       u.id, u.username, u.email, u.status, u.is_email_verified,
@@ -76,37 +66,105 @@ async function getAllUsers({ page = 1, limit = 10, sortBy = 'created_at', order 
 }
 
 async function getUserById(id) {
-  if (!id)
-    return { success: false, code: 400, message: 'Thiếu user ID', data: null };
+  const ids = Array.isArray(id) ? id : [id];
 
-  const result = await sqlQuery('SELECT * FROM users WHERE id = ?', [id]);
+  if (ids.length === 0) {
+    return {
+      success: false,
+      code: 400,
+      message: 'Danh sách ID không hợp lệ',
+      data: null,
+    };
+  }
+
+  const placeholders = ids.map(() => '?').join(', ');
+
+  const query = `
+    SELECT 
+      u.id,
+      u.username,
+      u.email,
+      u.status,
+      u.is_email_verified,
+      u.created_at,
+      u.updated_at,
+      p.display_name,
+      p.avatar_url,
+      p.bio,
+      p.language,
+      p.preferences
+    FROM users u
+    LEFT JOIN user_profiles p ON u.id = p.user_id
+    WHERE u.id IN (${placeholders})
+  `;
+  
+  const result = await sqlQuery(query, ids);
   if (!result.success) return result;
 
-  const user = result.data[0];
-  if (!user)
-    return { success: false, code: 404, message: 'Không tìm thấy user', data: null };
-
-  return { success: true, code: 200, message: 'Lấy user thành công', data: user };
-}
-
-async function createUser({ username, email, password }) {
-  const hashedPassword = await bcrypt.hash(password, 10);
-  const result = await sqlQuery(
-    'INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
-    [username, email, hashedPassword]
-  );
-
-  if (!result.success) return result;
+  if (result.data.length === 0) {
+    return { success: false, code: 404, message: 'Không tìm thấy user', data: [] };
+  }
 
   return {
     success: true,
-    code: 201,
-    message: 'Tạo user thành công',
-    data: { id: result.data.insertId, username, email },
+    code: 200,
+    message: 'Lấy user thành công',
+    data: Array.isArray(id) ? result.data : result.data[0],
   };
 }
 
-async function updateUser(id, { username, email, status }) {
+async function createUser(username, email, password) {
+  return await withTransaction(async (connection) => {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const userResult = await sqlQuery(
+      'INSERT INTO users (username, email, password, status, is_email_verified) VALUES (?, ?, ?, ?, ?)',
+      [username, email, hashedPassword, 'active', false],
+      connection
+    );
+    if (!userResult.success) return userResult;
+
+    const userId = userResult.data.insertId;
+
+    const defaultProfile = {
+      display_name: username,
+      avatar_url: null,
+      bio: '',
+      language: 'vi',
+      preferences: JSON.stringify({
+        theme: 'light',
+        fontSize: 'medium',
+      }),
+    };
+
+    const profileResult = await sqlQuery(
+      `
+      INSERT INTO user_profiles 
+        (user_id, display_name, avatar_url, bio, language, preferences)
+      VALUES (?, ?, ?, ?, ?, ?)
+      `,
+      [
+        userId,
+        defaultProfile.display_name,
+        defaultProfile.avatar_url,
+        defaultProfile.bio,
+        defaultProfile.language,
+        defaultProfile.preferences,
+      ],
+      connection
+    );
+
+    if (!profileResult.success) return profileResult;
+
+    return {
+      success: true,
+      code: 201,
+      message: 'Tạo user thành công',
+      data: { id: userResult.data.insertId, username, email },
+    };
+  });
+}
+
+async function updateUser(id, data) {
   const result = await sqlQuery(
     'UPDATE users SET username=?, email=?, status=? WHERE id=?',
     [username, email, status, id]

@@ -1,5 +1,4 @@
 function validateFields(data, requiredFields = []) {
-  // Nếu không có body
   if (!data || (typeof data === 'object' && Object.keys(data).length === 0)) {
     return {
       success: false,
@@ -9,7 +8,6 @@ function validateFields(data, requiredFields = []) {
     };
   }
 
-  // Hàm kiểm tra từng field (hỗ trợ nested)
   const checkField = (obj, path) => {
     const keys = path.split('.');
     let current = obj;
@@ -17,7 +15,6 @@ function validateFields(data, requiredFields = []) {
       if (current == null || typeof current !== 'object' || !(key in current)) return false;
       current = current[key];
     }
-    // Nếu null, undefined hoặc chuỗi rỗng
     return !(current == null || (typeof current === 'string' && current.trim() === ''));
   };
 
@@ -52,4 +49,45 @@ function validateFields(data, requiredFields = []) {
   };
 }
 
-module.exports = { validateFields };
+function validateGetUsersQuery(query) {
+  const {
+    page = 1,
+    limit = 10,
+    sortBy = 'created_at',
+    order = 'DESC',
+    email_verified,
+  } = query;
+
+  const errors = {};
+
+  // validate pagination
+  const paginationErrors = validatePagination({ page, limit });
+  if (Object.keys(paginationErrors).length > 0) {
+    Object.assign(errors, paginationErrors);
+  }
+
+  // sortBy
+  if (!isAllowedField(sortBy, ['created_at', 'username', 'email'])) {
+    errors.sortBy = 'sortBy không hợp lệ';
+  }
+
+  // order
+  if (!isSortOrder(order)) {
+    errors.order = 'order chỉ có thể là ASC hoặc DESC';
+  }
+
+  // email_verified
+  if (email_verified !== undefined && !isBooleanString(email_verified)) {
+    errors.email_verified = 'email_verified chỉ có thể là true hoặc false';
+  }
+
+  return {
+    valid: Object.keys(errors).length === 0,
+    errors,
+  };
+}
+
+module.exports = {
+  validateFields,
+  validateGetUsersQuery,
+};

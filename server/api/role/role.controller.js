@@ -1,6 +1,6 @@
 const roleService = require('./role.service');
 const { handleError } = require('../../helpers/handleError');
-const { validateFields } = require('../../helpers/validateFields');
+const { validateFields } = require('../../helpers/validation');
 
 async function getRoles(req, res) {
   try {
